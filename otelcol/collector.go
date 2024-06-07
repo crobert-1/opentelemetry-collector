@@ -344,6 +344,24 @@ func (col *Collector) shutdown(ctx context.Context) error {
 
 	// Accumulate errors and proceed with shutting down remaining components.
 	var errs error
+	asyncErrChan := make(chan error)
+	cctx, cancel := context.WithCancel(ctx)
+
+	// This requires its own goroutine to ensure async errors hit during shutdown are properly
+	// bubbled up to the user, and shutting down components does not end up being blocked waiting
+	// for readers to read from an unbuffered channel.
+	go func() {
+		var asyncErrs error
+		for {
+			select {
+			case err := <-col.asyncErrorChannel:
+				asyncErrs = multierr.Append(asyncErrs, fmt.Errorf("received asynchronous error during shutdown: %w", err))
+			case <-cctx.Done():
+				asyncErrChan <- asyncErrs
+				return
+			}
+		}
+	}()
 
 	if err := col.configProvider.Shutdown(ctx); err != nil {
 		errs = multierr.Append(errs, fmt.Errorf("failed to shutdown config provider: %w", err))
@@ -355,6 +373,13 @@ func (col *Collector) shutdown(ctx context.Context) error {
 	}
 
 	col.setCollectorState(StateClosed)
+
+	cancel()
+	select {
+	case err := <-asyncErrChan:
+		errs = multierr.Append(errs, err)
+	default:
+	}
 
 	return errs
 }
