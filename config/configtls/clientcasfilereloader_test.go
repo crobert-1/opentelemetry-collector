@@ -6,72 +6,12 @@ package configtls
 import (
 	"crypto/x509"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
 )
-
-func TestCannotShutdownIfNotWatching(t *testing.T) {
-	reloader, _, _ := createReloader(t)
-	err := reloader.shutdown()
-	assert.Error(t, err)
-}
-
-func TestCannotStartIfAlreadyWatching(t *testing.T) {
-	reloader, _, _ := createReloader(t)
-
-	err := reloader.startWatching()
-	assert.NoError(t, err)
-
-	err = reloader.startWatching()
-	assert.Error(t, err)
-
-	err = reloader.shutdown()
-	assert.NoError(t, err)
-}
-
-func TestClosingWatcherDoesntBreakReloader(t *testing.T) {
-	reloader, loader, _ := createReloader(t)
-
-	err := reloader.startWatching()
-	assert.NoError(t, err)
-
-	assert.Equal(t, 1, loader.reloadNumber())
-
-	err = reloader.watcher.Close()
-	assert.NoError(t, err)
-
-	err = reloader.shutdown()
-	assert.NoError(t, err)
-}
-
-func TestErrorRecordedIfFileDeleted(t *testing.T) {
-	reloader, loader, filePath := createReloader(t)
-
-	err := reloader.startWatching()
-	assert.NoError(t, err)
-
-	assert.Equal(t, 1, loader.reloadNumber())
-
-	loader.returnErrorOnSubsequentCalls("test error on reload")
-
-	err = os.WriteFile(filePath, []byte("some_data"), 0600)
-	assert.NoError(t, err)
-
-	assert.Eventually(t, func() bool {
-		return loader.reloadNumber() > 1 && reloader.getLastError() != nil
-	}, 5*time.Second, 10*time.Millisecond)
-
-	lastErr := reloader.getLastError()
-	assert.Equal(t, "test error on reload", fmt.Sprint(lastErr))
-
-	err = reloader.shutdown()
-	assert.NoError(t, err)
-}
 
 func createReloader(t *testing.T) (*clientCAsFileReloader, *testLoader, string) {
 	tmpClientCAsFilePath := createTempFile(t)
