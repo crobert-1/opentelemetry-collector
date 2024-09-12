@@ -142,11 +142,3 @@ For example this metric only exists if feature A is enabled.
 | Unit | Metric Type | Value Type |
 | ---- | ----------- | ---------- |
 | {items} | Gauge | Int |
-
-### otelcol_request_duration
-
-Duration of request
-
-| Unit | Metric Type | Value Type |
-| ---- | ----------- | ---------- |
-| s | Histogram | Double |

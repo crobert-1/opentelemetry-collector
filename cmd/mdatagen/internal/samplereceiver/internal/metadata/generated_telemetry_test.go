@@ -3,9 +3,12 @@
 package metadata
 
 import (
+	"context"
 	"testing"
 
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	embeddedmetric "go.opentelemetry.io/otel/metric/embedded"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
@@ -14,6 +17,7 @@ import (
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configtelemetry"
 )
 
@@ -80,4 +84,46 @@ func TestNewTelemetryBuilder(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, applied)
+}
+
+func TestTelemetryMetrics(t *testing.T) {
+	tt, err := componenttest.SetupTelemetry(component.MustNewID(Type.String()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, tt.Shutdown(context.Background())) })
+
+	var tb *TelemetryBuilder
+	tb, err = NewTelemetryBuilder(tt.TelemetrySettings(),
+		WithProcessRuntimeTotalAllocBytesCallback(func() int64 {
+			return 1
+		}))
+	require.NoError(t, err)
+
+	// Ensure optional metrics haven't been recorded upon setup
+	_, err = tt.GetMetric("otelcol_queue_length", io_prometheus_client.MetricType_GAUGE, []attribute.KeyValue{})
+	require.Error(t, err)
+
+	// Initialize default values for telemetry metric attributes
+	booleanAttr := attribute.Bool("boolean_attr ", true)
+	enumAttr := attribute.String("enum_attr", AttributeEnumAttrRed.String())
+	overriddenIntAttr := attribute.Int64("overridden_int_attr ", 1)
+	stringAttr := attribute.String("string_attr ", "1")
+	var ts *io_prometheus_client.Metric
+	// TODO: Split out histograms to special case to refer to bucket values.
+	tb.BatchSizeTriggerSend.Add(context.Background(), 1, metric.WithAttributeSet(attribute.NewSet(stringAttr, overriddenIntAttr, enumAttr, booleanAttr)))
+	tb.BatchSizeTriggerSend.Add(context.Background(), 2)
+	tb.DisabledMetric.Record(context.Background(), 1)
+
+	ts, err = tt.GetMetric("otelcol_batch_size_trigger_send", io_prometheus_client.MetricType_COUNTER, []attribute.KeyValue{stringAttr, overriddenIntAttr, enumAttr, booleanAttr})
+	require.NoError(t, err)
+	require.Equal(t, float64(1), ts.GetCounter().GetValue())
+	ts, err = tt.GetMetric("otelcol_batch_size_trigger_send", io_prometheus_client.MetricType_COUNTER, []attribute.KeyValue{})
+	require.NoError(t, err)
+	require.Equal(t, float64(2), ts.GetCounter().GetValue())
+	ts, err = tt.GetMetric("otelcol_disabled_metric", io_prometheus_client.MetricType_GAUGE, []attribute.KeyValue{})
+	require.NoError(t, err)
+	require.Equal(t, float64(1), ts.GetGauge().GetValue())
+	ts, err = tt.GetMetric("otelcol_process_runtime_total_alloc_bytes", io_prometheus_client.MetricType_COUNTER, []attribute.KeyValue{stringAttr, overriddenIntAttr, enumAttr})
+	require.NoError(t, err)
+	require.Equal(t, float64(1), ts.GetCounter().GetValue())
+
 }

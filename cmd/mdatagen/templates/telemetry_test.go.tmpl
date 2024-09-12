@@ -3,9 +3,12 @@
 package {{ .Package }}
 
 import (
+    "context"
 	"testing"
 
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
+    "go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	embeddedmetric "go.opentelemetry.io/otel/metric/embedded"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
@@ -14,6 +17,7 @@ import (
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configtelemetry"
 )
 
@@ -81,6 +85,189 @@ func TestNewTelemetryBuilder(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, applied)
+}
+
+func TestTelemetryMetrics(t *testing.T) {
+    tt, err := componenttest.SetupTelemetry(component.MustNewID(Type.String()))
+    require.NoError(t, err)
+    t.Cleanup(func() { require.NoError(t, tt.Shutdown(context.Background())) })
+
+    var tb *TelemetryBuilder
+	tb, err = NewTelemetryBuilder(tt.TelemetrySettings()
+
+    {{- range $name, $metric := .Telemetry.Metrics -}}
+        {{- if and $metric.Data.Async (not $metric.Optional) -}}
+        ,
+        With{{ $name.Render }}Callback(func() {{ $metric.Data.BasicType }} {
+            return 1
+        })
+        {{- end }}
+    {{- end -}})
+	require.NoError(t, err)
+
+    {{- $foundOptional := false -}}
+	{{ range $name, $metric := .Telemetry.Metrics -}}
+	    {{- if $metric.Optional -}}
+	        {{- if eq $foundOptional false }}
+
+	            // Ensure optional metrics haven't been recorded upon setup
+	            {{- $foundOptional := true -}}
+	        {{- end }}
+        	_, err = tt.GetMetric("otelcol_{{ $name }}", io_prometheus_client.MetricType_
+        	{{- if eq $metric.Data.Type "Sum" -}}COUNTER
+        	{{- else if eq $metric.Data.Type "Gauge" -}}GAUGE
+        	{{- else if eq $metric.Data.Type "Histogram" -}}HISTOGRAM
+        	{{- end -}}
+        	, []attribute.KeyValue{})
+        	require.Error(t, err)
+	    {{- end -}}
+    {{- end -}}
+
+
+{{- $Attributes := .Attributes -}}
+{{- $TelMetrics := .Telemetry.Metrics -}}
+{{- $commentTelAttrs := true -}}
+
+	{{- range $attr_name, $info := $Attributes -}}
+	    {{- $found := false -}}
+        {{- range $metric_name, $metric := $TelMetrics -}}
+            {{- if $metric.Data.Async -}}
+                {{- continue -}}
+            {{- end -}}
+            {{- range $metric.Attributes -}}
+                {{- if or (eq $attr_name (attributeInfo .).Name) (eq $info.NameOverride (attributeInfo .).Name) -}}
+                    {{- if eq $commentTelAttrs true }}
+
+    // Initialize default values for telemetry metric attributes
+                        {{- $commentTelAttrs = false -}}
+                    {{- end -}}
+
+                    {{- if $info.Enum }}
+    {{ .RenderUnexported }} := attribute.String("{{ $attr_name }}", {{ range $info.Enum -}}
+                        Attribute{{ $attr_name.Render }}{{ . | publicVar }}.String())
+                        {{- break -}}
+                        {{- end -}}
+                        {{- $found = true }}
+
+                    {{- else if eq (attributeInfo .).Type.Primitive "string" }}
+    {{ .RenderUnexported }} := attribute.String("{{ $attr_name}} ", "1")
+                        {{- $found = true -}}
+
+                    {{- else if eq (attributeInfo .).Type.Primitive "int64" }}
+    {{ .RenderUnexported }} := attribute.Int64("{{ $attr_name}} ", 1)
+                        {{- $found = true }}
+
+                    {{- else if eq (attributeInfo .).Type.Primitive "float64" }}
+    {{ .RenderUnexported }} := attribute.Float64("{{ $attr_name}} ", 1)
+                        {{- $found = true }}
+
+                    {{- else if eq (attributeInfo .).Type.Primitive "bool" }}
+    {{ .RenderUnexported }} := attribute.Bool("{{ $attr_name}} ", true)
+                        {{- $found = true }}
+
+                    {{- end -}}
+
+                {{- end -}}
+
+                {{- if eq $found true -}}
+                    {{- break -}}
+                {{- end -}}
+
+            {{- end -}}
+        {{- if eq $found true -}}
+            {{- break -}}
+        {{- end -}}
+        {{- end -}}
+    {{- end }}
+
+    {{- range $name, $metric := .Telemetry.Metrics -}}
+        {{- if not $metric.Optional }}
+            var ts *io_prometheus_client.Metric
+            {{ break -}}
+        {{- end -}}
+    {{- end -}}
+    // TODO: Split out histograms to special case to refer to bucket values.
+
+    {{- range $name, $metric := .Telemetry.Metrics -}}
+        {{- if and (not $metric.Data.Async) (not $metric.Optional) }}
+            {{- if eq $metric.Data.Type "Histogram" }}
+                tb.{{ $name.Render }}.Record(context.Background(), 1
+
+                {{- if $metric.Attributes -}}, metric.WithAttributeSet(attribute.NewSet(
+                    {{- range $index, $attribute := $metric.Attributes -}}
+                        {{ .RenderUnexported }},
+                    {{- end -}})))
+                    tb.{{ $name.Render }}.Record(context.Background(), 2)
+                {{- else -}}
+                    )
+                    {{- continue -}}
+                {{- end -}}
+            {{- else }}
+                tb.{{ $name.Render }}.
+                {{- if eq $metric.Data.Type "Sum" -}}Add
+                {{- else -}}Record
+                {{- end -}}
+                (context.Background(), 1
+
+                {{- if $metric.Attributes -}}, metric.WithAttributeSet(attribute.NewSet(
+                    {{- range $index, $attribute := $metric.Attributes -}}
+                        {{ .RenderUnexported }},
+                    {{- end -}})))
+                    tb.{{ $name.Render }}.Add(context.Background(), 2)
+                {{- else -}}
+                    )
+                    {{- continue -}}
+                {{- end -}}
+            {{ end -}}
+        {{- end -}}
+    {{- end }}
+
+    {{ range $name, $metric := .Telemetry.Metrics -}}
+        {{- if not $metric.Optional -}}
+            ts, err = tt.GetMetric("otelcol_{{ $name }}", io_prometheus_client.MetricType_
+
+            {{- if eq $metric.Data.Type "Sum" -}} COUNTER
+            {{- else if eq $metric.Data.Type "Gauge" -}} GAUGE
+            {{- else if eq $metric.Data.Type "Histogram" -}} HISTOGRAM
+            {{- end -}}, []attribute.KeyValue{
+
+            {{- range $metric.Attributes -}}
+                {{ .RenderUnexported }},
+            {{- end -}}})
+            require.NoError(t, err)
+            {{ if eq $metric.Data.Type "Histogram" -}}
+
+            {{ else -}}
+                require.Equal(t, float64(1), ts.Get
+                {{- if eq $metric.Data.Type "Sum" -}} Counter
+                {{- else if eq $metric.Data.Type "Gauge" -}} Gauge
+                {{- end -}}
+                ().GetValue())
+            {{ end -}}
+
+            {{- if or (not $metric.Attributes) ($metric.Data.Async) -}}
+                {{- continue -}}
+            {{- end -}}
+            ts, err = tt.GetMetric("otelcol_{{ $name }}", io_prometheus_client.MetricType_
+
+            {{- if eq $metric.Data.Type "Sum" -}} COUNTER
+            {{- else if eq $metric.Data.Type "Gauge" -}} GAUGE
+            {{- else if eq $metric.Data.Type "Histogram" -}} HISTOGRAM
+            {{- end -}}, []attribute.KeyValue{})
+            require.NoError(t, err)
+            {{ if eq $metric.Data.Type "Histogram" -}}
+
+            {{ else -}}
+                require.Equal(t, float64(2), ts.Get
+                {{- if eq $metric.Data.Type "Sum" -}} Counter
+                {{- else if eq $metric.Data.Type "Gauge" -}} Gauge
+                {{- end -}}
+                ().GetValue())
+            {{ end -}}
+        {{ end -}}
+    {{- end }}
+
+
 }
 
 {{- end }}

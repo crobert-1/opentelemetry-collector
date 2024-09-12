@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/collector/component"
@@ -31,10 +32,10 @@ func Tracer(settings component.TelemetrySettings) trace.Tracer {
 type TelemetryBuilder struct {
 	meter                                metric.Meter
 	BatchSizeTriggerSend                 metric.Int64Counter
+	DisabledMetric                       metric.Int64Gauge
 	ProcessRuntimeTotalAllocBytes        metric.Int64ObservableCounter
 	observeProcessRuntimeTotalAllocBytes func(context.Context, metric.Observer) error
 	QueueLength                          metric.Int64ObservableGauge
-	RequestDuration                      metric.Float64Histogram
 	meters                               map[configtelemetry.Level]metric.Meter
 }
 
@@ -84,6 +85,12 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...teleme
 		metric.WithUnit("{times}"),
 	)
 	errs = errors.Join(errs, err)
+	builder.DisabledMetric, err = builder.meters[configtelemetry.LevelBasic].Int64Gauge(
+		"otelcol_disabled_metric",
+		metric.WithDescription("This metric is disabled by default"),
+		metric.WithUnit("{items}"),
+	)
+	errs = errors.Join(errs, err)
 	builder.ProcessRuntimeTotalAllocBytes, err = builder.meters[configtelemetry.LevelBasic].Int64ObservableCounter(
 		"otelcol_process_runtime_total_alloc_bytes",
 		metric.WithDescription("Cumulative bytes allocated for heap objects (see 'go doc runtime.MemStats.TotalAlloc')"),
@@ -91,12 +98,6 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...teleme
 	)
 	errs = errors.Join(errs, err)
 	_, err = builder.meters[configtelemetry.LevelBasic].RegisterCallback(builder.observeProcessRuntimeTotalAllocBytes, builder.ProcessRuntimeTotalAllocBytes)
-	errs = errors.Join(errs, err)
-	builder.RequestDuration, err = builder.meters[configtelemetry.LevelBasic].Float64Histogram(
-		"otelcol_request_duration",
-		metric.WithDescription("Duration of request"),
-		metric.WithUnit("s"), metric.WithExplicitBucketBoundaries([]float64{1, 10, 100}...),
-	)
 	errs = errors.Join(errs, err)
 	return &builder, errs
 }
