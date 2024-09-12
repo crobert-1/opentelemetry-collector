@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/collector/cmd/mdatagen/internal/samplereceiver/internal/metadata"
+	"go.opentelemetry.io/collector/cmd/mdatagen/internal/samplereceiver/internal/metadata/telemetrytest"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
@@ -24,11 +25,11 @@ func TestGeneratedMetrics(t *testing.T) {
 }
 
 func TestComponentTelemetry(t *testing.T) {
-	tt := setupTestTelemetry()
+	tt := telemetrytest.SetupTestTelemetry()
 	factory := NewFactory()
 	receiver, err := factory.CreateMetricsReceiver(context.Background(), tt.NewSettings(), componenttest.NewNopHost(), new(consumertest.MetricsSink))
 	require.NoError(t, err)
-	tt.assertMetrics(t, []metricdata.Metrics{
+	tt.AssertMetrics(t, []metricdata.Metrics{
 		{
 			Name:        "otelcol_batch_size_trigger_send",
 			Description: "Number of times the batch was sent due to a size trigger",
@@ -61,7 +62,7 @@ func TestComponentTelemetry(t *testing.T) {
 	rcv, ok := receiver.(nopReceiver)
 	require.True(t, ok)
 	rcv.initOptionalMetric()
-	tt.assertMetrics(t, []metricdata.Metrics{
+	tt.AssertMetrics(t, []metricdata.Metrics{
 		{
 			Name:        "otelcol_batch_size_trigger_send",
 			Description: "Number of times the batch was sent due to a size trigger",

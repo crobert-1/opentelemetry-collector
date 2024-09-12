@@ -92,8 +92,12 @@ func run(ymlPath string) error {
 	toGenerate := map[string]string{}
 
 	if len(md.Telemetry.Metrics) != 0 { // if there are telemetry metrics, generate telemetry specific files
+		telTestDir := filepath.Join(codeDir, "telemetrytest")
+		if err = os.MkdirAll(telTestDir, 0700); err != nil {
+			return fmt.Errorf("unable to create output directory %q: %w", codeDir, err)
+		}
 		if err = generateFile(filepath.Join(tmplDir, "component_telemetry_test.go.tmpl"),
-			filepath.Join(ymlDir, "generated_component_telemetry_test.go"), md, packageName); err != nil {
+			filepath.Join(telTestDir, "generated_component_telemetry.go"), md, "telemetrytest"); err != nil {
 			return err
 		}
 		toGenerate[filepath.Join(tmplDir, "telemetry.go.tmpl")] = filepath.Join(codeDir, "generated_telemetry.go")
